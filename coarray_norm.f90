@@ -3,7 +3,6 @@
 ! fashion using fortran coarrays and collective routines.
 
 ! Author : Komahan Boopathy (komahan@gatech.edu)
-!
 !=====================================================================!
 
 program test_norm
