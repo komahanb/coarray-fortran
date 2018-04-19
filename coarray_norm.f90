@@ -152,7 +152,8 @@ contains
     type(vector), intent(in) :: b
 
     xdot = dot_product(this % values, b % values)
-    call co_reduce (xdot, operator=sum)
+    !call co_reduce (xdot, operator=sum)
+    call co_sum(xdot)
 
   end function dot
 
@@ -166,7 +167,8 @@ contains
     real(8) :: xdot
 
     xdot = dot_product(this % values, this % values)
-    call co_reduce (xdot, operator=sum)
+    !call co_reduce (xdot, operator=sum)
+    call co_sum (xdot)
     norm = sqrt(xdot)
 
   end function norm
@@ -208,7 +210,8 @@ subroutine test_norm
     ! Set known values and compute norm
     x = 1.0d0
     xdot = dot_product(x,x)  
-    call co_reduce (xdot, operator=sum)
+    !call co_reduce (xdot, operator=sum)
+    call co_sum (xdot)
     if (this_image() == 1) then
        write(*,*) "Norm of the array is", sqrt(xdot) , this_image()
     end if
@@ -216,7 +219,8 @@ subroutine test_norm
     ! Compute norm with random values in the vector
     CALL RANDOM_NUMBER(x)
     xdot = dot_product(x,x)  
-    call co_reduce (xdot, operator=sum)
+    !call co_reduce (xdot, operator=sum)
+    call co_sum (xdot)
     if (this_image() == 1) then
        write(*,*) "Norm of the array is", sqrt(xdot) , this_image()
     end if
