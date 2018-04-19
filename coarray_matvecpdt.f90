@@ -4,7 +4,7 @@
 ! Author : Komahan Boopathy (komahan@gatech.edu)
 !=====================================================================!
 
-program test_norm
+program test_matmul
 
   implicit none
   
@@ -35,24 +35,82 @@ program test_norm
   call random_number(A)
   call random_number(x)
 
-  ! Matrix vector multiplication
-  btmp = matmul(A, x)
+  ! Multiply as you would normally
+  b = co_matmul(A, x)
 
-  ! Sum btmp across all processors
-  call co_sum(btmp)
-
-  b = btmp((me-1)*local_size+1:me*local_size)
-  !write(*,*) "the new vector is", b , this_image()
+  ! call comatmul(A, x, btmp, b)
+  
+  write(*,*) "the new vector is", b , this_image()
 
   deallocate(A,x,b,btmp)
   
 contains
-
-  ! MPI_SUM
-  pure function sum(a, b)
-    real(8), intent(in) :: a, b
-    real(8) :: sum
-    sum = a + b
-  end function sum
   
-end program test_norm
+  !===================================================================!
+  ! Function that computes the matrix vector product in a distributed
+  ! fashion for columnwise decomposition of matrix
+  ! ===================================================================!
+  
+  function co_matmul(A, x) result(b)
+
+    ! Arguments
+    real(8), intent(in) :: A(:,:)
+    real(8), intent(in) :: x(:)
+    real(8) :: b(size(x))
+    
+    ! Local variables
+    integer :: nimages
+    integer :: me, local_size
+    integer :: stat
+    character(10) :: msg
+
+    ! Create a local vector of global sizse (optimize this!)
+    real(8), allocatable :: work(:)
+    allocate(work, mold=A(:,1))
+
+    ! Determine partition
+    nimages = num_images()
+    me = this_image()
+    local_size = size(x)
+
+    ! Multiply, sum and distrbute
+    work = matmul(A,x)
+    call co_sum(work, stat=stat, errmsg=msg)
+    b = work((me-1)*local_size+1:me*local_size)
+
+    deallocate(work)
+
+  end function co_matmul
+
+  !===================================================================!
+  ! Subroutine that computes the matrix vector product in a
+  ! distributed fashion for columnwise decomposition of matrix
+  !===================================================================!
+  
+  subroutine comatmul(A, x, work, b)
+
+    ! Arguments
+    real(8), intent(in) :: A(:,:)
+    real(8), intent(in) :: x(:)
+    real(8), intent(inout) :: work(:)
+    real(8), intent(inout) :: b(:)
+    
+    ! Local variables
+    integer :: nimages
+    integer :: me, local_size
+    integer :: stat
+    character(10) :: msg
+
+    ! Determine partition
+    nimages = num_images()
+    me = this_image()
+    local_size = size(x)
+
+    ! Multiply, sum and distrbute
+    work = matmul(A,x)
+    call co_sum(work, stat=stat, errmsg=msg)
+    b = work((me-1)*local_size+1:me*local_size)
+
+  end subroutine comatmul
+
+end program test_matmul

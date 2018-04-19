@@ -262,11 +262,32 @@ subroutine test_norm
        write(*,*) "Norm of the vector is", xnorm , this_image()
     end if
 
+    xnorm = co_norm2(x)
+    if (this_image() == 1) then
+       write(*,*) "Norm of the vector using co_norm is", xnorm, this_image()
+    end if
+
   end block test_datatype
 
   deallocate(x)
 
 contains
+  
+  !===================================================================!
+  ! Function to compute the norm of a distributed vector
+  !===================================================================!
+  
+  function co_norm2(x) result(norm)
+
+    real(8), intent(in) :: x(:)    
+    real(8) :: xdot, norm
+
+    ! find dot product, sum over processors, take sqrt and return
+    xdot = dot_product(x,x)  
+    call co_sum (xdot)
+    norm = sqrt(xdot)
+
+  end function co_norm2
 
   ! MPI_SUM
   pure function sum(a, b)
@@ -278,5 +299,7 @@ contains
 end subroutine test_norm
 
 program main
+
   call test_norm
+  
 end program main
