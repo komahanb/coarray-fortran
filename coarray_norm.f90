@@ -180,7 +180,7 @@ end module vector_class
 ! Author : Komahan Boopathy (komahan@gatech.edu)
 !=====================================================================!
 
-program test_norm
+subroutine test_norm
 
   implicit none
 
@@ -202,7 +202,7 @@ program test_norm
   !-------------------------------------------------------------------!
   ! Test primitive array norm using coarrays
   !-------------------------------------------------------------------!
-  
+
   test_array : block
 
     ! Set known values and compute norm
@@ -226,7 +226,7 @@ program test_norm
   !-------------------------------------------------------------------!
   ! Test derived data type for distributed vector
   !-------------------------------------------------------------------!
-  
+
   test_datatype : block
 
     use vector_class, only : vector
@@ -271,4 +271,8 @@ contains
     sum = a + b
   end function sum
 
-end program test_norm
+end subroutine test_norm
+
+program main
+  call test_norm
+end program main
