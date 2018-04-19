@@ -8,7 +8,7 @@ program test_norm
 
   implicit none
   
-  integer, parameter :: global_size = 4000000
+  integer, parameter :: global_size = 40
 
   ! Distributed work data
   real(8), allocatable :: A(:,:)
@@ -19,7 +19,7 @@ program test_norm
   integer :: nimages = 1
   integer :: local_size
   integer :: i, me
-  
+
   ! Determine partition
   nimages    = num_images()
   local_size = global_size/nimages
@@ -30,17 +30,17 @@ program test_norm
   allocate(x(local_size))
   allocate(b(local_size))
   allocate(btmp(global_size))
-  
+
   ! Fill the local arrays with random values or known entries
   call random_number(A)
   call random_number(x)
 
   ! Matrix vector multiplication
   btmp = matmul(A, x)
-  
-  ! Compiler does not support array reduction yet!
-  call co_reduce (btmp, operator=sum)
-  
+
+  ! Sum btmp across all processors
+  call co_sum(btmp)
+
   b = btmp((me-1)*local_size+1:me*local_size)
   !write(*,*) "the new vector is", b , this_image()
 
