@@ -26,7 +26,8 @@ module vector_class
      ! Type-bound procedures
      procedure :: random_values
      procedure :: zero_values
-     procedure :: axpy
+     procedure :: copy_values
+     procedure :: axpy, axpby
      procedure :: dot
      procedure :: norm
 
@@ -73,6 +74,22 @@ contains
     this % values = 0.0d0
 
   end subroutine zero_values
+  
+  !===================================================================!
+  ! Copies the values of one vector into another
+  !===================================================================!
+
+  subroutine copy_values(this, a)
+
+    class(vector), intent(inout) :: this
+    type(vector), intent(in) :: a
+
+    if (a % size .ne. this % size) &
+         & stop "dimension-mismatch-for-copy"
+    
+    this % values = a % values
+
+  end subroutine copy_values
 
   !===================================================================!
   ! Set random values into the vector
@@ -99,7 +116,21 @@ contains
     this % values = this % values + alpha * x % values
 
   end subroutine axpy
+  
+  !===================================================================!
+  ! y <- beta*y + alpha*x where alpha is a scalar
+  !===================================================================!
 
+  subroutine axpby(this, alpha, x, beta)
+
+    class(vector) , intent(inout) :: this
+    real(8)       , intent(in)    :: alpha, beta
+    type(vector)  , intent(in)    :: x
+
+    this % values = beta * this % values + alpha * x % values
+
+  end subroutine axpby
+  
   !===================================================================!
   ! Return the dot product of this vector with another vector 'b'
   !===================================================================!
