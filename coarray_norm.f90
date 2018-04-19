@@ -87,16 +87,16 @@ contains
   end subroutine random_values
 
   !===================================================================!
-  ! y <- y + a*x where a is a scalar
+  ! y <- y + alpha*x where alpha is a scalar
   !===================================================================!
 
-  subroutine axpy(this, a, x)
+  subroutine axpy(this, alpha, x)
 
-    class(vector), intent(inout) :: this
-    real(8), intent(in) :: a
-    real(8), intent(in) :: x(:)
+    class(vector) , intent(inout) :: this
+    real(8)       , intent(in)    :: alpha
+    type(vector)  , intent(in)    :: x
 
-    this % values = this % values + x
+    this % values = this % values + alpha * x % values
 
   end subroutine axpy
 
@@ -205,6 +205,12 @@ program test_norm
     ! set random values and compute norm
     !call xvec % random_values()
     xvec % values(:) = x(:)
+    xnorm = xvec % norm()
+    if (this_image() == 1) then
+       write(*,*) "Norm of the vector is", xnorm , this_image()
+    end if
+
+    call xvec % axpy(1.0d0, xvec)
     xnorm = xvec % norm()
     if (this_image() == 1) then
        write(*,*) "Norm of the vector is", xnorm , this_image()
