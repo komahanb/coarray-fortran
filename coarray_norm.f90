@@ -24,12 +24,9 @@ module vector_class
    contains
 
      ! Type-bound procedures
-     procedure :: random_values
-     procedure :: zero_values
-     procedure :: copy_values
-     procedure :: axpy, axpby
-     procedure :: dot
-     procedure :: norm
+     procedure :: zero_values, copy_values, random_values
+     procedure :: scale, axpy, axpby
+     procedure :: dot, norm
 
   end type vector
 
@@ -42,6 +39,7 @@ contains
 
   ! MPI_SUM
   pure function sum(a, b)
+    
     real(8), intent(in) :: a, b
     real(8) :: sum
     sum = a + b
@@ -130,6 +128,19 @@ contains
     this % values = beta * this % values + alpha * x % values
 
   end subroutine axpby
+
+  !===================================================================!
+  ! Scale the values by alpha: y <- alpha*y
+  !===================================================================!
+
+  subroutine scale(this, alpha)
+
+    class(vector) , intent(inout) :: this
+    real(8)       , intent(in)    :: alpha
+
+    this % values = alpha * this % values
+
+  end subroutine scale
   
   !===================================================================!
   ! Return the dot product of this vector with another vector 'b'
