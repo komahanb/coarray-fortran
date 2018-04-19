@@ -183,6 +183,8 @@ end module vector_class
 !=====================================================================!
 
 subroutine test_norm
+  
+  use vector_class, only : vector
 
   implicit none
 
@@ -192,8 +194,10 @@ subroutine test_norm
 
   ! Distributed work data
   real(8), allocatable :: x(:)
+  type(vector) :: xvec
   real(8) :: xdot
-
+  real(8) :: xnorm
+    
   ! Determine partition
   nimages = num_images()
   local_size = global_size/nimages
@@ -202,72 +206,66 @@ subroutine test_norm
   allocate(x(local_size))
 
   !-------------------------------------------------------------------!
-  ! Test primitive array norm using coarrays
+  ! Test norm computations of large vector with random values
   !-------------------------------------------------------------------!
 
-  test_array : block
+  test_random: block
 
-    ! Set known values and compute norm
-    x = 1.0d0
+    ! Set random values into the vector
+    call random_number(x)
+
+    ! Using direct procedure
     xdot = dot_product(x,x)  
-    !call co_reduce (xdot, operator=sum)
     call co_sum (xdot)
     if (this_image() == 1) then
-       write(*,*) "Norm of the array is", sqrt(xdot) , this_image()
+       write(*,*) "Norm of the array using direct procedure is", sqrt(xdot) , this_image()
     end if
 
-    ! Compute norm with random values in the vector
-    CALL RANDOM_NUMBER(x)
-    xdot = dot_product(x,x)  
-    !call co_reduce (xdot, operator=sum)
-    call co_sum (xdot)
-    if (this_image() == 1) then
-       write(*,*) "Norm of the array is", sqrt(xdot) , this_image()
-    end if
-
-  end block test_array
-
-  !-------------------------------------------------------------------!
-  ! Test derived data type for distributed vector
-  !-------------------------------------------------------------------!
-
-  test_datatype : block
-
-    use vector_class, only : vector
-
-    type(vector) :: xvec
-    real(8) :: xnorm
-
-    ! create a vector datatype
-    xvec = vector(local_size)
-
-    ! set known values and compute norm
-    xvec % values = 1.0d0
-    xnorm = xvec % norm()
-    if (this_image() == 1) then
-       write(*,*) "Norm of the vector is", xnorm , this_image()
-    end if
-
-    ! set random values and compute norm
-    !call xvec % random_values()
-    xvec % values(:) = x(:)
-    xnorm = xvec % norm()
-    if (this_image() == 1) then
-       write(*,*) "Norm of the vector is", xnorm , this_image()
-    end if
-
-    call xvec % axpy(1.0d0, xvec)
-    xnorm = xvec % norm()
-    if (this_image() == 1) then
-       write(*,*) "Norm of the vector is", xnorm , this_image()
-    end if
-
+    ! Using CO_NORM2 function
     xnorm = co_norm2(x)
     if (this_image() == 1) then
-       write(*,*) "Norm of the vector using co_norm is", xnorm, this_image()
+       write(*,*) "Norm of the vector using co_norm2 function is", xnorm, this_image()
+    end if
+    
+    ! Using derived datatype that uses direct procedure internally
+    xvec % values = x
+    xnorm = xvec % norm()
+    if (this_image() == 1) then
+       write(*,*) "Norm of the vector datatype is", xnorm , this_image()
+    end if
+    
+  end block test_random
+
+  !-------------------------------------------------------------------!
+  ! Test norm computations of large vector with same values
+  !-------------------------------------------------------------------!
+
+  test_deterministic: block
+    
+    ! Set deterministic values into the vector
+    x = 1.0d0
+
+    ! Using direct procedure
+    xdot = dot_product(x,x)  
+    call co_sum (xdot)
+    if (this_image() == 1) then
+       write(*,*) "Norm of the array using direct procedure is", sqrt(xdot) , this_image()
     end if
 
-  end block test_datatype
+    ! Using CO_NORM2 function
+    xnorm = co_norm2(x)
+    if (this_image() == 1) then
+       write(*,*) "Norm of the vector using co_norm2 function is", xnorm, this_image()
+    end if
+    
+    ! Using derived datatype that uses direct procedure internally
+    xvec % values = x
+    xnorm = xvec % norm()
+    if (this_image() == 1) then
+       write(*,*) "Norm of the vector datatype is", xnorm , this_image()
+    end if
+
+  end block test_deterministic
 
   deallocate(x)
 
