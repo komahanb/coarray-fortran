@@ -188,7 +188,7 @@ subroutine test_norm
 
   implicit none
 
-  integer, parameter :: global_size = 20000
+  integer, parameter :: global_size = 200000
   integer :: nimages = 1
   integer :: local_size
 
@@ -298,6 +298,15 @@ end subroutine test_norm
 
 program main
 
-  call test_norm
-  
+  use clock_class, only : clock
+  type(clock) :: timer
+
+  call timer % start()
+  call test_norm()
+  call timer % stop()
+
+  if (this_image() .eq. 1) then
+     write(*, '("Model run time:",F8.3," seconds")') timer % getelapsed()
+  end if
+
 end program main
