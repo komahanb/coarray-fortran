@@ -41,8 +41,10 @@ contains
     tol       = rnorm/bnorm
     rho(iter) = rnorm*rnorm
 
-    open(10, file='cg.log', action='write', position='append')
-
+    if (this_image() .eq. 1) then
+       open(10, file='cg.log', action='write', position='append')
+    end if
+    
     ! Apply Iterative scheme until tolerance is achieved
     do while ((tol .gt. max_tol) .and. (iter .lt. max_it))
 
@@ -60,7 +62,7 @@ contains
        w = co_matmul(A,p)
 
        ! step (c) compute the step size for update
-       alpha = rho(iter)/dot_product(p, w)
+       alpha = rho(iter)/co_dot_product(p, w)
 
        ! step (d) Add dx to the old solution
        x = x + alpha*p
@@ -73,9 +75,11 @@ contains
        rnorm = co_norm2(r)
        tol = rnorm/bnorm
 
-       write(10,*) iter, tol
-       print *, iter, tol
-
+       if (this_image() .eq. 1) then
+          write(10,*) iter, tol
+          print *, iter, tol
+       end if
+       
        iter = iter + 1
 
        rho(iter) = rnorm*rnorm
@@ -89,6 +93,21 @@ contains
     flag = 0
 
   end subroutine dparcg
+
+  !===================================================================!
+  ! Function to compute the dot product of two distributed vector
+  !===================================================================!
+
+  function co_dot_product(a, b) result(dot)
+
+    real(8), intent(in) :: a(:), b(:)    
+    real(8) :: dot
+
+    ! find dot product, sum over processors, take sqrt and return
+    dot = dot_product(a, b)  
+    call co_sum (dot)
+
+  end function co_dot_product
 
   !===================================================================!
   ! Function to compute the norm of a distributed vector
@@ -255,7 +274,7 @@ program main
 
   parallel : block
 
-    integer, parameter :: npts = 8
+    integer, parameter :: npts = 5000
     integer, parameter :: max_it = 100000
     real(8), parameter :: max_tol = 1.0d-8
 
@@ -280,7 +299,6 @@ program main
     ! Assemble system on master
     if (me .eq. 1) then
        call assemble_system_dirichlet(0.0d0, 1.0d0, npts, A, b, x, P)
-       print *, A, shape(A)
     end if
 
     sync all
@@ -300,7 +318,9 @@ program main
 
     ! Distribute the work to processors
     call dparcg(Atmp, btmp, max_it, max_tol, xtmp, iter, tol, flag)
-    print *, 'cg', tol, iter
+    !if (me .eq. 1) then
+       print *, 'cg', tol, iter
+    !end if
 
   end block parallel
 
