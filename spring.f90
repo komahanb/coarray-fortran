@@ -43,7 +43,7 @@ contains
   ! Constructor for spring
   !===================================================================!
 
-  pure type(spring) function construct_spring( element_id, node_ids, &
+  type(spring) function construct_spring( element_id, node_ids, &
        & nodes, proc_id ) result (this)
 
     integer, intent(in) :: element_id
@@ -56,6 +56,10 @@ contains
     this % nodes = nodes
     this % proc_id = proc_id
 
+    !print *, size(node_ids)
+    
+    this % ndof = this % ndof_per_node * size(node_ids)
+    
   end function construct_spring
   
   !===================================================================!
@@ -81,7 +85,8 @@ contains
     real(8), intent(inout) :: res(:)
 
     ! use forces may be?
-    res(1) = this % k * x(1) - 1.0d0 
+    res(1) = this % k * (x(1) - x(2)) 
+    res(2) = this % k * (x(2) - x(1)) 
     
   end subroutine add_residual
 
@@ -89,13 +94,35 @@ contains
   ! Add the jacobian
   !===================================================================!
 
-  subroutine add_jacobian_vector_pdt(this, jac, x)
-
+  subroutine add_jacobian(this, jac, x)
+    
     class(spring) :: this
     real(8), intent(in) :: x(:)
     real(8), intent(inout) :: jac(:,:)
 
-    jac(1,1) = this % k
+    jac(1,1) =  this % k
+    jac(1,2) = -this % k
+
+    jac(1,2) = -this % k
+    jac(2,2) =  this % k
+    
+  end subroutine add_jacobian
+  
+  !===================================================================!
+  ! Add the jacobian-vector product
+  !===================================================================!
+  
+  subroutine add_jacobian_vector_pdt(this, jac, x, pdt)
+
+    class(spring) :: this
+    real(8), intent(in) :: x(:)
+    real(8), intent(inout) :: jac(:,:)
+    real(8), intent(inout) :: pdt(:)
+
+    pdt(1) =  this % k * x(1) - this % k * x(2)
+    pdt(2) = -this % k * x(1) + this % k * x(2)
+
+    ! Any communication with neighbor?
     
   end subroutine add_jacobian_vector_pdt
 
@@ -109,7 +136,7 @@ program main
 
   ! Domain and meshing
   real(8), parameter :: a = 0.0d0, b = 1.0d0
-  integer, parameter :: nelems = 100
+  integer, parameter :: nelems = 2
 
   integer :: nnodes = nelems + 1
   integer :: me, nimages
@@ -121,45 +148,48 @@ program main
   integer :: e
   integer :: leid
   integer :: lnode_ids(2)
-  real(8) :: lnodes(2, 1) = 0.0d0
 
+  real(8) :: lnodes(2, 1) = 0.0d0
+  real(8), allocatable :: x(:), rhs(:), mat(:,:)
+  
   ! Mesh sizse
   dx = (b-a)/dble(nelems)
-  
+
   ! Identify processors
   me = this_image()
   nimages = num_images()
   if (nimages .gt. nelems) STOP "Too many processors for the problem size"
-  if ( mod(nelems, nimages) .ne. 0) STOP "Unequal partition. Use different number of processors."
+  if (mod(nelems, nimages) .ne. 0) STOP "Unequal partition. Use different number of processors."
 
   ! Decompose domain based on procs
   lnelems = nelems/nimages
   !la = dble(me-1)*ldx
   !lb = la + ldx
-  
+
   ! Allocate the elements locally on each processor
   allocate(springs(lnelems))
-  
+
   ! Mesh the local domain
   do e = 1, lnelems
 
-     leid        = (me-1)*lnelems + e
-     lnode_ids   = [leid, leid + 1]
+     leid = (me-1)*lnelems + e
+     lnode_ids = [leid, leid + 1]
      lnodes(:,1) = [dble(lnode_ids - 1)*dx]
-
-     !print *, lnodes
      springs(e) = spring(leid, lnode_ids, lnodes, me)
+     call springs(e) % to_string()  
 
-     call springs(e) % to_string()
-     
   end do
 
+  ! Assemble into a big matrix
+  ! allocate(mat(npts,local_size))
+  ! allocate(x(local_size))
+  ! allocate(rhs(local_size))
 
+  ! Distribute the work to processors
+  ! call dparcg(A, b, max_it, max_tol, x, iter, tol, flag)
+  ! print *, 'cg', tol, iter
 
-  ! 
-
-
-  
+  !deallocate(A,x,rhs)
   deallocate(springs)
-  
-end program main
+
+end program
