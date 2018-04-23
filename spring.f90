@@ -12,21 +12,20 @@ module element_class
      integer :: element_id
 
      ! Global node identifiers associated with this element
-     integer              :: nnodes
+     integer :: nnodes
      integer, allocatable :: node_ids(:)
      real(8), allocatable :: nodes(:,:)
 
      ! DOF calculations
      integer :: ndof_per_node = 1
      integer :: ndof = 0
-
      real(8) :: k = 1.0d0
-
      integer :: proc_id
      
    contains
 
      procedure :: add_residual
+     procedure :: add_jacobian     
      procedure :: add_jacobian_vector_pdt
      procedure :: to_string
      
@@ -85,42 +84,41 @@ contains
     real(8), intent(inout) :: res(:)
 
     ! use forces may be?
-    res(1) = this % k * (x(1) - x(2)) 
-    res(2) = this % k * (x(2) - x(1)) 
+    res(1) = res(1) + 1.0d0 !this % k * (x(1) - x(2)) 
+    res(2) = res(2) + 1.0d0 !this % k * (x(2) - x(1)) 
     
   end subroutine add_residual
 
   !===================================================================!
   ! Add the jacobian
   !===================================================================!
-
+  
   subroutine add_jacobian(this, jac, x)
-    
+
     class(spring) :: this
     real(8), intent(in) :: x(:)
     real(8), intent(inout) :: jac(:,:)
 
-    jac(1,1) =  this % k
-    jac(1,2) = -this % k
+    jac(1,1) = jac(1,1) + this % k
+    jac(1,2) = jac(1,2) - this % k
 
-    jac(1,2) = -this % k
-    jac(2,2) =  this % k
-    
+    jac(1,2) = jac(1,2) - this % k
+    jac(2,2) = jac(2,2) + this % k
+
   end subroutine add_jacobian
-  
+
   !===================================================================!
   ! Add the jacobian-vector product
   !===================================================================!
   
-  subroutine add_jacobian_vector_pdt(this, jac, x, pdt)
+  subroutine add_jacobian_vector_pdt(this, x, pdt)
 
     class(spring) :: this
     real(8), intent(in) :: x(:)
-    real(8), intent(inout) :: jac(:,:)
     real(8), intent(inout) :: pdt(:)
 
-    pdt(1) =  this % k * x(1) - this % k * x(2)
-    pdt(2) = -this % k * x(1) + this % k * x(2)
+    pdt(1) = pdt(1) + this % k * x(1) - this % k * x(2)
+    pdt(2) = pdt(2) - this % k * x(1) + this % k * x(2)
 
     ! Any communication with neighbor?
     
@@ -128,15 +126,152 @@ contains
 
 end module element_class
 
+!=====================================================================!
+! 
+!=====================================================================!
+
+module assembler_class
+
+  use element_class
+
+  implicit none
+
+  type :: assembler
+
+     type(spring), allocatable :: elems(:)
+
+     integer :: nelems
+     integer :: ndof
+
+   contains
+
+     procedure :: residual
+     !procedure :: jacobian
+     procedure :: jacobian_vector_product
+     
+  end type assembler
+
+  ! 
+  interface assembler
+     module procedure create_assembler
+  end interface assembler
+
+contains
+
+  type(assembler) function create_assembler(elems) result (this)
+
+    type(spring), intent(in) :: elems(:)
+    integer :: i
+
+    allocate(this % elems, source = elems)
+    this % nelems = size(elems)
+    
+!!$    do i = 1, this % nelems
+!!$       this % ndof = this % ndof + this % elems(i) % ndof
+!!$    end do
+
+    ! removing common dofs
+    this % ndof = this % nelems + 1
+    
+    print *, "NDOF=",this % ndof, "proc", this_image()
+    
+  end function create_assembler
+  
+  !===================================================================!
+  ! Add the residual 
+  !===================================================================!
+  
+  subroutine residual(this, res, x)
+
+    class(assembler) :: this
+    real(8), intent(in) :: x(:)
+    real(8), intent(inout) :: res(:)
+    integer :: nids(2)
+    integer :: e
+
+    res = 0.0d0
+    
+    do e = 1, this % nelems
+       nids = this % elems(e) % node_ids
+       call this % elems(e) % add_residual( &
+            & res(nids(1):nids(2)), &
+            & x(nids(1):nids(2)) &
+            & )
+    end do
+
+    ! 
+    !call this % apply_bc(res)
+    
+  end subroutine residual
+  
+!!$  
+!!$  !===================================================================!
+!!$  ! Add the jacobian
+!!$  !===================================================================!
+!!$  
+!!$  subroutine jacobian(this, jac, x)
+!!$
+!!$    class(assembler) :: this
+!!$    real(8), intent(in) :: x(:)
+!!$    real(8), intent(inout) :: jac(:,:)
+!!$    integer :: nids(2)
+!!$    integer :: e
+!!$
+!!$    jac = 0.0d0
+!!$
+!!$    do e = 1, this % nelems
+!!$       nids = this % elems(e) % node_ids
+!!$       call this % elems(e) % add_jacobian( &
+!!$            & jac(nids(1):nids(2),nids(1):nids(2)), &
+!!$            & x(nids(1):nids(2)) &
+!!$            & )
+!!$    end do
+!!$
+!!$  end subroutine jacobian
+!!$
+  
+  !===================================================================!
+  ! Add the jacobian-vector product
+  !===================================================================!
+  
+  subroutine jacobian_vector_product(this, x, pdt)
+
+    class(assembler) :: this
+    real(8), intent(in) :: x(:)
+    real(8), intent(inout) :: pdt(:)
+    integer :: e
+    integer :: nids(2)
+
+    pdt = 0.0d0
+    do e = 1, this % nelems
+       nids = this % elems(e) % node_ids
+       call this % elems(e) % add_jacobian_vector_pdt( &
+            & x(nids(1):nids(2)), &
+            & pdt(nids(1):nids(2)) &
+            & )
+    end do
+
+    
+    ! 
+    !call this % apply_bc(res)
+    
+    ! Any communication with neighbor?
+
+  end subroutine jacobian_vector_product
+
+  
+end module assembler_class
+
 program main
 
   use element_class, only : spring
+  use assembler_class, only : assembler
   
   implicit none
 
   ! Domain and meshing
   real(8), parameter :: a = 0.0d0, b = 1.0d0
-  integer, parameter :: nelems = 2
+  integer, parameter :: nelems = 20000000
 
   integer :: nnodes = nelems + 1
   integer :: me, nimages
@@ -151,6 +286,7 @@ program main
 
   real(8) :: lnodes(2, 1) = 0.0d0
   real(8), allocatable :: x(:), rhs(:), mat(:,:)
+  type(assembler) :: spring_assembler
   
   ! Mesh sizse
   dx = (b-a)/dble(nelems)
@@ -172,24 +308,39 @@ program main
   ! Mesh the local domain
   do e = 1, lnelems
 
-     leid = (me-1)*lnelems + e
+     !leid = (me-1)*lnelems + e
+     !lnode_ids = [leid, leid + 1]
+     !lnodes(:,1) = [dble(lnode_ids - 1)*dx]
+
+     leid = e
      lnode_ids = [leid, leid + 1]
      lnodes(:,1) = [dble(lnode_ids - 1)*dx]
+     
      springs(e) = spring(leid, lnode_ids, lnodes, me)
-     call springs(e) % to_string()  
+     
+     ! call springs(e) % to_string()  
 
   end do
 
+  ! Create an assembler for these elements
+  spring_assembler = assembler(springs)
+  
   ! Assemble into a big matrix
-  ! allocate(mat(npts,local_size))
-  ! allocate(x(local_size))
-  ! allocate(rhs(local_size))
+  !allocate(mat(npts,local_siz))
+  !allocate(mat(spring_assembler % ndof, spring_assembler % ndof))
+  allocate(x(spring_assembler % ndof))
+  allocate(rhs(spring_assembler % ndof))
+
+  call random_number(x)
+  call spring_assembler % residual(rhs, x)
+  call spring_assembler % jacobian_vector_product(x, rhs)
 
   ! Distribute the work to processors
   ! call dparcg(A, b, max_it, max_tol, x, iter, tol, flag)
   ! print *, 'cg', tol, iter
 
   !deallocate(A,x,rhs)
+  
   deallocate(springs)
 
 end program
