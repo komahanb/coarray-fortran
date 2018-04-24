@@ -7,6 +7,117 @@ module conjugate_gradient
 
 contains
 
+  !-------------------------------------------------------------------!
+  ! Solve the linear system using preconditioned conjugate gradient
+  ! method
+  !-------------------------------------------------------------------!
+  
+  subroutine dpparcg(A, M, b, max_it, max_tol, x, iter, tol, flag)
+
+    use clock_class, only : clock
+
+    real(dp), intent(in) :: A(:,:)
+    real(dp), intent(in) :: M(:,:)
+    real(dp), intent(in) :: b(:)
+    integer , intent(in) :: max_it
+    real(dp), intent(in) :: max_tol
+
+    real(dp), intent(inout) :: x(:)
+    integer , intent(out)   :: iter
+    real(dp), intent(out)   :: tol
+    integer , intent(out)   :: flag
+
+    ! create local data
+    real(dp), allocatable :: p(:), r(:), w(:), z(:)
+    real(dp), allocatable :: rho(:), tau(:)
+    real(dp) :: alpha, beta
+    real(dp) :: bnorm, rnorm
+    type(clock) :: timer
+
+    ! Memory allocations
+    allocate(r, p, w, z, mold=x)
+    allocate(rho(max_it))
+    allocate(tau(max_it))
+
+    ! Start the iteration counter
+    iter = 1
+
+    ! Norm of the right hand side
+    bnorm = co_norm2(b)
+
+    ! Norm of the initial residual
+    r         = b - co_matmul(A, x)
+    rnorm     = co_norm2(r)
+    tol       = rnorm/bnorm
+    rho(iter) = rnorm*rnorm
+
+    
+    if (this_image() .eq. 1) then
+       open(10, file='pcg.log', action='write', position='append')
+    end if
+    
+    ! Apply Iterative scheme until tolerance is achieved
+    do while ((tol .gt. max_tol) .and. (iter .lt. max_it))
+
+       call timer % start()
+
+       ! step (a)
+       z = co_matmul(M,r)
+
+       ! step (b)
+       tau(iter) = co_dot_product(z,r)
+
+       ! step (c) compute the descent direction
+       if ( iter .eq. 1) then
+          ! steepest descent direction p
+          beta = 0.0d0
+          p = z
+       else
+          ! take a conjugate direction
+          beta = tau(iter)/tau(iter-1)
+          p = z + beta*p
+       end if
+
+       ! step (b) compute the solution update
+       w = co_matmul(A,p)
+
+       ! step (c) compute the step size for update
+       alpha = tau(iter)/co_dot_product(p, w)
+
+       ! step (d) Add dx to the old solution
+       x = x + alpha*p
+
+       ! step (e) compute the new residual
+       r = r - alpha*w
+       !r = b - matmul(A, x)
+
+       ! step(f) update values before next iteration
+       rnorm = co_norm2(r)
+       tol = rnorm/bnorm
+
+       call timer % stop()
+       
+       if (this_image() .eq. 1) then
+          write(10,*) iter, tol, timer % getelapsed()
+          print *, iter, tol, timer % getelapsed()
+       end if
+       
+       call timer % reset()
+       
+       iter = iter + 1
+
+       rho(iter) = rnorm*rnorm
+
+    end do
+
+    close(10)
+
+    deallocate(r, p, w, rho, tau)
+
+    flag = 0
+
+  end subroutine dpparcg
+  
   subroutine dparcg(A, b, max_it, max_tol, x, iter, tol, flag)
 
     use clock_class, only : clock
@@ -184,7 +295,7 @@ contains
   ! Assemble -U_xx = 2x - 0.5, U(0) = 1;  U(1)= 0, x in [0,1]
   !-------------------------------------------------------------------!
 
-  subroutine assemble_system_dirichlet(a, b, npts, V, rhs, u, P)
+  subroutine assemble_system_dirichlet(a, b, npts, V, rhs, u, P, ispreconditioned)
 
     implicit none
 
@@ -201,6 +312,8 @@ contains
     integer            :: M, N
     integer            :: i, j, k
 
+    logical, intent(in) :: ispreconditioned
+    
     ! h = width / num_interior_pts + 1
     h = (b-a)/dble(npts+1)
     V = 0.0d0
@@ -239,32 +352,34 @@ contains
        u(i) =  sin(dble(i)*h*PI)
     end do
 
-    ! Find the sine transform matrix
-    alpha = sqrt(2.0d0/dble(npts+1))
-    do j = 1, M
-       do k = 1, N
-          S(k,j) = alpha*sin(PI*dble(j*k)/dble(npts+1))
+    if (ispreconditioned .eqv. .true.) then
+       ! Find the sine transform matrix
+       alpha = sqrt(2.0d0/dble(npts+1))
+       do j = 1, M
+          do k = 1, N
+             S(k,j) = alpha*sin(PI*dble(j*k)/dble(npts+1))
+          end do
        end do
-    end do
 
-    ! Find the diagonal matrix
-    D = matmul(S, matmul(V, S))
+       ! Find the diagonal matrix
+       D = matmul(S, matmul(V, S))
 
-    ! Invert the digonal matrix easily
-    do j = 1, M
-       D(j,j) = 1.0d0/D(j,j)
-    end do
+       ! Invert the digonal matrix easily
+       do j = 1, M
+          D(j,j) = 1.0d0/D(j,j)
+       end do
 
-    ! Define the preconditioner
-    p = matmul(S, matmul(D, S))
+       ! Define the preconditioner
+       p = matmul(S, matmul(D, S))
+    end if
 
-  end subroutine assemble_system_dirichlet
+end subroutine assemble_system_dirichlet
 
 end module system
 
 program main
 
-  use conjugate_gradient, only: dparcg
+  use conjugate_gradient, only: dparcg, dpparcg
   use system, only : assemble_system_dirichlet
   use clock_class, only : clock
 
@@ -286,20 +401,19 @@ program main
 
   parallel : block
 
-    integer, parameter :: npts = 5000
-    integer, parameter :: max_it = 100000
+    integer, parameter :: npts = 25000
+    integer, parameter :: max_it = 1000
     real(8), parameter :: max_tol = 1.0d-8
 
     real(8), allocatable :: x(:)[:], b(:)[:], A(:,:)[:], P(:,:)[:]
-    real(8), allocatable :: xtmp(:), btmp(:), Atmp(:,:)
+    real(8), allocatable :: xtmp(:), btmp(:), Atmp(:,:), Ptmp(:,:)
 
     integer :: iter, flag, i, j
     real(8) :: tol   
     integer :: nimages
     integer :: me, local_size
     type(clock) :: timer
-
-    call timer % start()
+    logical , parameter :: precon = .false.
     
     allocate(A(npts,npts)[*])
     allocate(P(npts,npts)[*])
@@ -313,16 +427,23 @@ program main
 
     ! Assemble system on master
     if (me .eq. 1) then
-       call assemble_system_dirichlet(0.0d0, 1.0d0, npts, A, b, x, P)
+       call assemble_system_dirichlet(0.0d0, 1.0d0, npts, A, b, x, P, precon)
     end if
+
+    !sync all
+    
+    call timer % start()
 
     ! Split A, b, x into pieces
     allocate(Atmp(npts,local_size))
+    allocate(Ptmp(npts,local_size))
     allocate(xtmp(local_size))
     allocate(btmp(local_size))
 
+    
     ! Copy from proc 1
     Atmp = A(1:npts,(me-1)*local_size+1:me*local_size)[1]
+    Ptmp = P(1:npts,(me-1)*local_size+1:me*local_size)[1]
     xtmp = x((me-1)*local_size+1:me*local_size)[1]
     btmp = b((me-1)*local_size+1:me*local_size)[1]
 
@@ -330,9 +451,13 @@ program main
     deallocate(A,b,x,P)
 
     ! Distribute the work to processors
-    
-    call dparcg(Atmp, btmp, max_it, max_tol, xtmp, iter, tol, flag)
 
+    if (precon .eqv. .false.) then
+       call dparcg(Atmp, btmp, max_it, max_tol, xtmp, iter, tol, flag)
+    else
+       call dpparcg(Atmp, Ptmp, btmp, max_it, max_tol, xtmp, iter, tol, flag)
+    end if
+    
     call timer % stop()
 
     if (this_image() .eq. 1) then
