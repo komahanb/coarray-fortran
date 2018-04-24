@@ -5,6 +5,8 @@
 !=====================================================================!
 
 program test_matmul
+  
+  use clock_class, only : clock
 
   implicit none
   
@@ -20,6 +22,8 @@ program test_matmul
   integer :: local_size
   integer :: i, me
 
+  type(clock) :: timer
+  
   ! Determine partition
   nimages    = num_images()
   local_size = global_size/nimages
@@ -35,12 +39,18 @@ program test_matmul
   call random_number(A)
   call random_number(x)
 
+  call timer % start()
   ! Multiply as you would normally
   b = co_matmul(A, x)
+  call timer % stop()
+  
+  if (this_image() .eq. 1) then
+     write(*, '("Model run time:",F8.3," seconds")') timer % getelapsed()
+  end if
 
   ! call comatmul(A, x, btmp, b)
   
-  write(*,*) "the new vector is", b , this_image()
+  !write(*,*) "the new vector is", b , this_image()
 
   deallocate(A,x,b,btmp)
   
