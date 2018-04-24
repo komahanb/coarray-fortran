@@ -9,6 +9,8 @@ contains
 
   subroutine dparcg(A, b, max_it, max_tol, x, iter, tol, flag)
 
+    use clock_class, only : clock
+
     real(dp), intent(in) :: A(:,:)
     real(dp), intent(in) :: b(:)
     integer , intent(in) :: max_it
@@ -24,7 +26,9 @@ contains
     real(dp), allocatable :: rho(:)
     real(dp) :: alpha, beta
     real(dp) :: bnorm, rnorm
-
+    
+    type(clock) :: timer
+  
     ! Memory allocations
     allocate(r, p, w, mold=x)
     allocate(rho(max_it))
@@ -44,10 +48,12 @@ contains
     if (this_image() .eq. 1) then
        open(10, file='cg.log', action='write', position='append')
     end if
-    
+
     ! Apply Iterative scheme until tolerance is achieved
     do while ((tol .gt. max_tol) .and. (iter .lt. max_it))
 
+       call timer % start()
+       
        ! step (a) compute the descent direction
        if ( iter .eq. 1) then
           ! steepest descent direction p
@@ -75,10 +81,15 @@ contains
        rnorm = co_norm2(r)
        tol = rnorm/bnorm
 
+       call timer % stop()
+
+       
        if (this_image() .eq. 1) then
-          write(10,*) iter, tol
-          print *, iter, tol
+          write(10,*) iter, tol, timer % getelapsed()
+          print *, iter, tol, timer % getelapsed()
        end if
+       
+       call timer % reset()
        
        iter = iter + 1
 
@@ -255,6 +266,7 @@ program main
 
   use conjugate_gradient, only: dparcg
   use system, only : assemble_system_dirichlet
+  use clock_class, only : clock
 
 !!$  serial : block
 !!$    
@@ -285,7 +297,10 @@ program main
     real(8) :: tol   
     integer :: nimages
     integer :: me, local_size
+    type(clock) :: timer
 
+    call timer % start()
+    
     allocate(A(npts,npts)[*])
     allocate(P(npts,npts)[*])
     allocate(x(npts)[*])
@@ -301,8 +316,6 @@ program main
        call assemble_system_dirichlet(0.0d0, 1.0d0, npts, A, b, x, P)
     end if
 
-    sync all
-
     ! Split A, b, x into pieces
     allocate(Atmp(npts,local_size))
     allocate(xtmp(local_size))
@@ -317,9 +330,18 @@ program main
     deallocate(A,b,x,P)
 
     ! Distribute the work to processors
+    
     call dparcg(Atmp, btmp, max_it, max_tol, xtmp, iter, tol, flag)
+
+    call timer % stop()
+
+    if (this_image() .eq. 1) then
+       write(*, '("Model run time:",F8.3," seconds")') timer % getelapsed()
+    end if
+
     !if (me .eq. 1) then
-       print *, 'cg', tol, iter
+    print *, 'cg', tol, iter
+    
     !end if
 
   end block parallel
