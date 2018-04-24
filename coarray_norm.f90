@@ -188,7 +188,7 @@ subroutine test_norm
 
   implicit none
 
-  integer, parameter :: global_size = 200000
+  integer, parameter :: global_size = 2000000000
   integer :: nimages = 1
   integer :: local_size
 
@@ -211,28 +211,28 @@ subroutine test_norm
 
   test_random: block
 
-    ! Set random values into the vector
-    call random_number(x)
+!!$    ! Set random values into the vector
+!!$    call random_number(x)
+!!$
+!!$    ! Using direct procedure
+!!$    xdot = dot_product(x,x)  
+!!$    call co_sum (xdot)
+!!$    if (this_image() == 1) then
+!!$       write(*,*) "Norm of the array using direct procedure is", sqrt(xdot) , this_image()
+!!$    end if
 
-    ! Using direct procedure
-    xdot = dot_product(x,x)  
-    call co_sum (xdot)
-    if (this_image() == 1) then
-       write(*,*) "Norm of the array using direct procedure is", sqrt(xdot) , this_image()
-    end if
-
-    ! Using CO_NORM2 function
-    xnorm = co_norm2(x)
-    if (this_image() == 1) then
-       write(*,*) "Norm of the vector using co_norm2 function is", xnorm, this_image()
-    end if
+!!$    ! Using CO_NORM2 function
+!!$    xnorm = co_norm2(x)
+!!$    if (this_image() == 1) then
+!!$       write(*,*) "Norm of the vector using co_norm2 function is", xnorm, this_image()
+!!$    end if
     
-    ! Using derived datatype that uses direct procedure internally
-    xvec % values = x
-    xnorm = xvec % norm()
-    if (this_image() == 1) then
-       write(*,*) "Norm of the vector datatype is", xnorm , this_image()
-    end if
+!!$    ! Using derived datatype that uses direct procedure internally
+!!$    xvec % values = x
+!!$    xnorm = xvec % norm()
+!!$    if (this_image() == 1) then
+!!$       write(*,*) "Norm of the vector datatype is", xnorm , this_image()
+!!$    end if
     
   end block test_random
 
@@ -246,11 +246,11 @@ subroutine test_norm
     x = 1.0d0
 
     ! Using direct procedure
-    xdot = dot_product(x,x)  
-    call co_sum (xdot)
-    if (this_image() == 1) then
-       write(*,*) "Norm of the array using direct procedure is", sqrt(xdot) , this_image()
-    end if
+!!$    xdot = dot_product(x,x)  
+!!$    call co_sum (xdot)
+!!$    if (this_image() == 1) then
+!!$       write(*,*) "Norm of the array using direct procedure is", sqrt(xdot) , this_image()
+!!$    end if
 
     ! Using CO_NORM2 function
     xnorm = co_norm2(x)
@@ -259,11 +259,11 @@ subroutine test_norm
     end if
     
     ! Using derived datatype that uses direct procedure internally
-    xvec % values = x
-    xnorm = xvec % norm()
-    if (this_image() == 1) then
-       write(*,*) "Norm of the vector datatype is", xnorm , this_image()
-    end if
+!!$    xvec % values = x
+!!$    xnorm = xvec % norm()
+!!$    if (this_image() == 1) then
+!!$       write(*,*) "Norm of the vector datatype is", xnorm , this_image()
+!!$    end if
 
   end block test_deterministic
 
