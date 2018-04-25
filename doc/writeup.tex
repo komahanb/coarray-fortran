@@ -1,0 +1,447 @@
+\documentclass[12pt]{report}
+\usepackage[letterpaper, margin=0.75in]{geometry}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{varwidth}
+\usepackage{amsmath}
+\usepackage{lscape}
+\usepackage[makeroom]{cancel}
+\usepackage{subcaption,hyperref}
+
+\title{\textbf{MATH 6644 -- Iterative Methods \\~ \\ Final Project}}
+\author{Komahan Boopathy}
+
+\begin{document}
+\maketitle
+%\tableofcontents
+%\clearpage
+\chapter{An Application of Domain Decomposition Method Using Fortran Coarrays}
+
+\section{Introduction and Background}
+
+This work demonstrates domain decomposition method for solving partial
+differential equations (PDEs) using Coarray Fortran parallel
+programming features. We will begin with a brief review of
+domain-decomposition method and coarray fortran.
+
+\subsubsection{Need for Domain Decomposition}
+
+The domain decomposition method works by splitting the main problem
+into subproblems on subdomains and iterating to coordinate the
+solution between adjacent subdomains.The problems on the subdomains
+are independent (except for enforcement of compatibility conditions
+across interface) , which makes domain decomposition methods suitable
+for parallel computing. For example, a problem of solving a large
+linear system $A\vec{x}=b$ can be decomposed into different processors as
+shown in Figure~\ref{fig:decomposition}.  Each subdomain with a
+smaller problem size can be solved using a suitable method of
+choice. Once the subproblems are solved, information is exchanged
+across neighboring processors.  %Domain decomposition can be broadly
+%classified into overlapping and non-overlapping methods.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.5\textwidth]{decomposition.pdf}    
+  \caption{Decomposition of the problem domain into subdomains on each
+    processor.}
+  \label{fig:decomposition}
+\end{figure}
+
+\subsubsection{Fortran Coarrays}
+
+Fortran programming language had been in existence since 1960s. It is
+the only language that boasts a standard's committee whose target
+audience is scientific programmers. Most of today's scientific code is
+based on Fortran. At the turn of the century there has been a lot of
+emphasis on parallel programming for tackling larger problem sizes
+arising in modern scientific simulations such as CFD, FEA
+etc. Motivated by this, \emph{Coarray fortran} was developed by Numrich
+and Reid, in 1990s and has been in existence as an extension to the
+language. Coarray fortran works under the principle that the
+scientific programmers do not have to worry about parallelizing by
+making external library calls such as MPI or others. Instead, minimal
+syntactic adjustments were introduced to communicate the
+parallelization intent to the compiler which handles the parallelism
+internally (by making MPI calls or others). This greatly simplifies
+the parallel code and eliminates any non-optimal calls made by the
+scientific programmer. The Coarray Fortran was inducted as language
+standard since 2008 and has seen increased interest.  Fortran coarrays
+fall under Partitioned Global Address Space (PGAS) parallel
+programming model. During execution, a Fortran program containing
+coarrays is interpreted as if it were replicated a fixed number of
+times and all copies were executed asynchronously. Each copy has its
+own set of data objects and is called an \emph{image}. The array
+syntax of Fortran is extended with additional trailing subscripts in
+square brackets (\texttt{[]}) to give a clear and straightforward
+representation of access to data on other images.  References without
+square brackets are to local data objects, so code that can run
+independently is uncluttered. Any occurrence of square brackets in
+dicates communication between images, which might be slow.  Fortran
+standard allows for the compiler to chose any means to parallelize the
+code e.g., MPI library.
+
+\subsubsection{Scope of this Work}
+
+In this work, a simple demonstration of the domain decomposition method
+is performed on a one-dimensional partial differential equation. This
+is a first attempt at using many of the core concepts of domain
+decomposition and parallel programming at work. Therefore, realistic
+scientific studies that need a lot of computational resources
+(e.g. Navier-Stokes equations) are infeasible at this point. Future
+work entails the extension of the code and libraries to work with many
+solution algorithms discussed in the class such as classical
+iterations, GMRES, MINRES.
+
+\section{Model Problem}
+
+The following differential equation is considered as the model
+problem:
+
+$$ -u^{\prime\prime}(x) = f(x) = 2x -\frac{1}{2}$$
+$$u(0) = 1, u(1) = 0 $$ 
+$$x \in [0,1]$$
+
+The differential equation is discretized using central difference
+scheme with $n$ interior mesh points.  The discretized ODE is $$-
+u_{i+1} +2 u_i - u_{i-1} = h^2f(x_i),$$ where $h = \frac{b-a}{n+1}$,
+$x_i=ih$, and $i = 0, \ldots, n+1$. This leads to a tridiagonal banded
+linear system as follows.
+
+$$ \begin{bmatrix} 
+  2 & -1  &  0 & 0 & 0\\
+  -1 & 2 & -1  &  0 & 0 \\
+  0 & \ddots & \ddots & \ddots & 0 \\
+  0 & 0 & -1 & 2 & -1 \\ 
+  0 & 0 &  0 & -1 & 2 \\  
+\end{bmatrix}
+\begin{bmatrix}
+  u(x_1) \\
+  u(x_2) \\
+  \vdots\\
+  u(x_{n-1}) \\
+  u(x_{n}) \\
+\end{bmatrix}
+=
+\begin{bmatrix}
+  1 +  h^2f(x_1) \\
+  h^2f(x_2) \\
+  \vdots\\
+  h^2f(x_{n-1}) \\
+  0 + h^2f(x_{n}) \\
+\end{bmatrix}$$  
+
+In order to demonstrate the effectiveness of domain decomposition
+method in solving large problems a sequence of mesh points are
+chosen. The resulting linear system $Ax=b$ is solved using a Conjugate
+Gradient Algorithm on each
+sub-domain. The problem is decomposed as
+illustrated in Figure~\ref{fig:decomposition} and subproblems were
+solved using Conjugate Gradient method. Usually, the splitting of domain for each processor comes
+directly from the geometry of the problem and meshing. However, as a
+first step the matrix is directly decomposed and optimizations are not
+considered. The exchange of information across domain are handled
+through Fortran's collective subroutines that were introduced in 2015.
+
+\section{Computer Implementation}
+
+Here details of the implementation of DDM using CG as the
+subdomain solver is discussed.
+
+\subsection{Collective Functions}
+
+In an iterative algorithm, it is essential to compute the inner
+product and multiply matrices with vectors. These are provided by
+Fortran as intrinsic function to the user: \texttt{dot\_product} and
+\texttt{matmul}. For this project, it became necessary to extend the
+functionalities to vectors and matrices that are distributed among
+different processors. 
+
+\subsubsection{Vector Norm}
+
+$L-2$ norm of a vector $x$ is defined as $\sqrt{(x,x)}$. When the
+vector $x$ is broken down into $x=[x^{1},x{2},\ldots,x^{p}]$, a
+collective summation of local inner products on each processor is
+necessary. This can be seen implemented in the following function to
+compute the L2-norm.
+  
+\begin{verbatim}
+
+  !===================================================================!
+  ! Function to compute the norm of a distributed vector
+  !===================================================================!
+  
+  function co_norm2(x) result(norm)
+
+    real(8), intent(in) :: x(:)    
+    real(8) :: xdot, norm
+
+    ! find dot product, sum over processors, take sqrt and return
+    xdot = dot_product(x,x)  
+    call co_sum (xdot)
+    norm = sqrt(xdot)
+
+  end function co_norm2
+
+\end{verbatim}
+
+\subsubsection{Matrix-Vector Product}
+
+As far as the decomposition of the Jacobian matrix goes, it can be
+done in one of the three popular ways:
+\begin{enumerate}
+\item columnwise decomposition
+\item rowwise decomposition
+\item checkerboard decomposition
+\end{enumerate}
+The schematic of matrix decomposition is illustrated in Figure~\ref{fig:matrix-decomposition}.
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{matrix-decomposition-methods.pdf}
+  \caption{Popular matrix decomposition strategies where each color
+    refers to a processor.}
+  \label{fig:matrix-decomposition}
+\end{figure}
+
+In this work, columnwise decomposition is used as it aligns with the
+memory layout of fortran programs which is column major order. The
+downside of columnwise decomposition is that it requires a temporary
+vector of global size (labeled as \texttt{work} in the following
+code).  However, one can optimize this a little bit by trading off
+communication for storage requirements. In principle, it is possible
+to implement a matrix-free jacobian vector products where the matrix
+need not be formed explicitly. However, jacobian-free implementations
+are more complex to implement.~\footnote{A prototype jacobian-free
+  matrix vector product based code was implemented but did not perform
+  correctly.}
+
+\begin{verbatim}
+
+  !===================================================================!
+  ! Function that computes the matrix vector product in a distributed
+  ! fashion for columnwise decomposition of matrix
+  ! ===================================================================!
+  
+  function co_matmul(A, x) result(b)
+
+    ! Arguments
+    real(8), intent(in) :: A(:,:)
+    real(8), intent(in) :: x(:)
+    real(8) :: b(size(x))
+    
+    ! Local variables
+    integer :: nimages
+    integer :: me, local_size
+    integer :: stat
+    character(10) :: msg
+
+    ! Create a local vector of global sizse (optimize this!)
+    real(8), allocatable :: work(:)
+    allocate(work, mold=A(:,1))
+
+    ! Determine partition
+    nimages = num_images()
+    me = this_image()
+    local_size = size(x)
+
+    ! Multiply, sum and distrbute
+    work = matmul(A,x)
+    call co_sum(work, stat=stat, errmsg=msg)
+    b = work((me-1)*local_size+1:me*local_size)
+
+    deallocate(work)
+
+  end function co_matmul
+
+\end{verbatim}
+
+\section{DDM-CG Algorithm}
+
+The CG algorithm outlined in literature~\ref{Kelly} is implemented. It
+was observed that the only changes that were required to the serial
+algorithm to work for subdomains was:
+\begin{enumerate}
+\item replacing \texttt{norm2(...)} with \texttt{co\_norm2(...)} calls
+\item replacing \texttt{matmul(...)} with \texttt{co\_matmul(...)} calls
+\end{enumerate}
+Once these calls were replaced, the original CG algorithm is
+executed on all processors. Each processor contained information only
+about their subdomain until exchange of information happened through
+specific calls.
+
+\section{Results}
+
+Although basic arithmetic operations such as addition, subtraction,
+multiplication and division workload are divided among processors,
+there is a communication overhead when information needs to be
+exchanged between processors. There is no well known rule for the
+optimal selection of number of processors for a given chunk of
+data. Scaling studies give a rough idea of this information.  The
+following section presents the scaling studies with increasing number
+of processors for a fixed problem size. Once the scaling studies are
+used to establish the number of processors that give the best results,
+it will then be applied to solve the linear system.  These studies
+were performed on a cluster with 2.50GHz Intel Xeon CPU E5-2680-v3
+compute nodes.
+
+\subsection{Parallel Scalability Studies}
+
+%As noted in the introduction, the problem domain is decomposed into
+%different processors.
+
+The key operations in any iterative solution algorithm are:
+\begin{enumerate}
+\item norm computations
+\item matrix-vector products
+\end{enumerate}
+In both these operations \emph{inner products} are essential. In the
+following the parallel scalability of these two operations are studied
+for different number of processors.
+
+\paragraph{Norm Computations}
+
+The efficiency of calculations are studied for finding the norm after
+the problem domain has been split into different processors. For this
+test, a random vector with 1 billion entries was decomposed between
+processors ranging from 1 to 24. Figure~\ref{fig:norm} shows the
+speedup and runtimes observed during the test.  The ideal scaling
+deteriorates after 8 processors and stays almost linear upto 14
+processors beyond which communication overhead takes over the
+performance. The $1/p^2$ stagnation can be observed from the runtime
+plot which is inline with the theoretical predictions.
+
+\begin{figure}[H]
+  \centering
+  \begin{minipage}{0.45\linewidth}
+    \includegraphics[width=\textwidth]{norm-speedup.pdf}
+    \label{Speedup}
+  \end{minipage}
+  \begin{minipage}{0.45\linewidth}
+    \includegraphics[width=\textwidth]{norm-runtime.pdf}
+    \label{Runtime}
+  \end{minipage}
+  \caption{Parallel scalability of $L_2$-\emph{norm} computations of
+    a distributed vector of total size 1 billion. }
+  \label{fig:norm}
+\end{figure}
+
+\paragraph{Matrix-Vector Computations}
+
+The sub-matrix on each processor along the column is multiplied with a
+vector during the iterative solution process. Figure~\ref{fig:matmul}
+shows the performance of distributed matrix-vector product
+computations.  Ideal scaling is observed upto 8 processors. Beyond 16
+processors we do not observe any speedup. Note that sparsity of the
+matrix for the model problem is not accounted for in this work,
+therefore even zeros are multiplied. This can be alleviated with the
+implementation of blockwise sparse storage of matrix such as BCSR
+format.
+
+\begin{figure}[H]
+  \centering
+  \begin{minipage}{0.45\linewidth}
+    \includegraphics[width=\textwidth]{matmul-speedup.pdf}
+    \label{Speedup}
+  \end{minipage}
+  \begin{minipage}{0.45\linewidth}
+    \includegraphics[width=\textwidth]{matmul-runtime.pdf}
+    \label{Runtime}
+  \end{minipage}
+  \caption{Parallel scalability of matrix-vector computations of
+    a distributed vector of total size 100,000. }
+  \label{fig:matmul}
+\end{figure}
+
+\subsection{Performance of DDM-CG}
+
+The numerical tests were done to assess the performance of the DDM-CG
+in terms of the iteration numbers and associated computational times.
+Two problem sizes were used for these tests: 10000 and 25000~\footnote{Larger problem sizes could not be tried due to memory allocation
+errors limited by the operating system. However, with the
+implementation of jacobian-free methods, this problem can be alleviated.
+}, with
+varying number of processors.  The convergence criterion is that
+The performances of DDM-CG method for both test cases is summarized in
+Table~\ref{tab:summary-10000} and ~\ref{tab:summary-25000}.
+
+\begin{table}[H]
+  \caption{Comparison of performance of DDM-CG method for problem size of 10000.}
+  \centering
+  \begin{tabular}{c|c|c|c}
+    \toprule
+    nprocs   & Num. CG Iters.   & Time per iteration (sec) & Total time (sec) \\
+    \midrule
+    1 & 10000 & 5.5E-002 & 15,750 \\ 
+    2 & 10000 & 3.1E-002 & 9,290 \\
+    4 & 10000 & 2.7E-002 & 6,930 \\
+    8 & 10000 & 2.6E-002 & 5,479 \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:summary-10000}
+\end{table}
+
+\begin{table}[H]
+  \caption{Comparison of perform-ace of DDM-CG method for problem size of 25000.}
+  \centering
+  \begin{tabular}{c|c|c|c}
+    \toprule
+    nprocs   & Num. CG Iters.   & Time per iteration (sec) & Total time (sec) \\
+    \midrule
+    1 & 25000 & 2.40 & 7,28,202 \\ 
+    2 & 25000 & 1.36 & 4,11,586 \\
+    4 & 25000 & 0.68 & 2,12,985 \\
+    8 & 25000 & 0.32 & 1,05,152 \\
+    12 & 25000 & 0.225 & 70, 605 \\
+    16 & 25000 & 0.162 &50, 771 \\
+    20 & 25000 & 0.128 & 39,685  \\
+    24 & 25000 & 0.107 & 33,772  \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:summary-25000}
+\end{table}
+
+The speedup and runtime plots were generated for each DDM-CG iteration
+based on the problem of size 25000 and is shown in Figure~\ref{fig:cg}.
+\begin{figure}[H]
+  \centering
+  \begin{minipage}{0.45\linewidth}
+    \includegraphics[width=\textwidth]{cg-speedup.pdf}
+    \label{Speedup}
+  \end{minipage}
+  \begin{minipage}{0.45\linewidth}
+    \includegraphics[width=\textwidth]{cg-runtime.pdf}
+    \label{Runtime}
+  \end{minipage}
+  \caption{Parallel scalability of each conjugate gradient iteration
+    for a problem size of 25000. }
+  \label{fig:cg}
+\end{figure}
+
+Overall the following observations can be made from the results:
+\begin{itemize}
+\item The DDM-CG algorithm obeys theoretical number of iterations to converge.
+\item The time for each iteration and therefore the overall time are
+  reduced with the use of more processors. There are no major
+  performance bottlenecks observed with CG iterations.
+\end{itemize}
+
+\section{Software}
+The computer code written by me as a part of this project and
+coursework is made publicly available at \newline
+\href{https://github.com/komahanb/coarray-fortran}{https://github.com/komahanb/coarray-fortran}
+and
+\href{https://github.com/komahanb/}{https://github.com/komahanb/iterative-algebra}.
+\\
+It is intended that the functionalities presented in this project
+will be extended and improved in future for realistic problems arising
+in science and engineering.
+
+\begin{thebibliography}{9}
+  
+\bibitem{Kelley} Kelley, C.T. \emph{Iterative Methods for
+  Optimization. In: Frontiers in Applied Mathematics}, Vol. 18, SIAM,
+  Philadelphia, 1990.  http://dx.doi.org/10.1137/1.9781611970920
+\end{thebibliography}
+
+\end{document}

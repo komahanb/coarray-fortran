@@ -19,7 +19,7 @@ module element_class
      ! DOF calculations
      integer :: ndof_per_node = 1
      integer :: ndof = 0
-     real(8) :: k = 1.0d0
+     real(8) :: k = 5.0d0
      integer :: proc_id
      
    contains
@@ -83,9 +83,12 @@ contains
     real(8), intent(in) :: x(:)
     real(8), intent(inout) :: res(:)
 
+    res(1) = res(1) + 1.0d0
+    res(2) = res(2) + 1.0d0
+
     ! use forces may be?
-    res(1) = res(1) + 1.0d0 !this % k * (x(1) - x(2)) 
-    res(2) = res(2) + 1.0d0 !this % k * (x(2) - x(1)) 
+    !res(1) = res(1) + 1.0d0 !this % k * (x(1) - x(2)) 
+    !res(2) = res(2) + 1.0d0 !this % k * (x(2) - x(1)) 
     
   end subroutine add_residual
 
@@ -117,13 +120,12 @@ contains
     real(8), intent(in) :: x(:)
     real(8), intent(inout) :: pdt(:)
 
-    pdt(1) = pdt(1) + this % k * x(1) - this % k * x(2)
-    pdt(2) = pdt(2) - this % k * x(1) + this % k * x(2)
-
+    pdt(1) = pdt(1) + this % k * x(1) ! - this % k * x(2)
+    pdt(2) = pdt(2) + this % k * x(2) ! + this % k * x(2)
     ! Any communication with neighbor?
     
   end subroutine add_jacobian_vector_pdt
-
+  
 end module element_class
 
 !=====================================================================!
@@ -148,7 +150,7 @@ module assembler_class
      procedure :: residual
      !procedure :: jacobian
      procedure :: jacobian_vector_product
-     
+     procedure :: solve
   end type assembler
 
   ! 
@@ -158,6 +160,22 @@ module assembler_class
 
 contains
 
+  !===================================================================!
+  ! Function to compute the norm of a distributed vector
+  !===================================================================!
+  
+  function co_norm2(x) result(norm)
+
+    real(8), intent(in) :: x(:)    
+    real(8) :: xdot, norm
+
+    ! find dot product, sum over processors, take sqrt and return
+    xdot = dot_product(x,x)  
+    call co_sum (xdot)
+    norm = sqrt(xdot)
+
+  end function co_norm2
+  
   type(assembler) function create_assembler(elems) result (this)
 
     type(spring), intent(in) :: elems(:)
@@ -181,7 +199,7 @@ contains
   ! Add the residual 
   !===================================================================!
   
-  subroutine residual(this, res, x)
+  subroutine residual(this, x, res)
 
     class(assembler) :: this
     real(8), intent(in) :: x(:)
@@ -234,24 +252,23 @@ contains
   ! Add the jacobian-vector product
   !===================================================================!
   
-  subroutine jacobian_vector_product(this, x, pdt)
+  subroutine jacobian_vector_product(this, x, Jx)
 
     class(assembler) :: this
     real(8), intent(in) :: x(:)
-    real(8), intent(inout) :: pdt(:)
+    real(8), intent(inout) :: Jx(:)
     integer :: e
     integer :: nids(2)
 
-    pdt = 0.0d0
+    Jx = 0.0d0
     do e = 1, this % nelems
        nids = this % elems(e) % node_ids
        call this % elems(e) % add_jacobian_vector_pdt( &
             & x(nids(1):nids(2)), &
-            & pdt(nids(1):nids(2)) &
+            & Jx(nids(1):nids(2)) &
             & )
     end do
 
-    
     ! 
     !call this % apply_bc(res)
     
@@ -260,18 +277,124 @@ contains
   end subroutine jacobian_vector_product
 
   
+  subroutine solve(this, max_it, max_tol, x, iter, tol, flag)
+
+    class(assembler) :: this
+    integer , intent(in) :: max_it
+    real(8), intent(in) :: max_tol
+
+    real(8), intent(inout) :: x(:)
+    integer , intent(out)   :: iter
+    real(8), intent(out)   :: tol
+    integer , intent(out)   :: flag
+
+    ! create local data
+    real(8), allocatable :: p(:), r(:), w(:), b(:)
+    real(8), allocatable :: rho(:)
+    real(8) :: alpha, beta
+    real(8) :: bnorm, rnorm
+
+    ! Memory allocations
+    allocate(r, p, w, b, mold=x)
+    allocate(rho(max_it))
+
+    ! Start the iteration counter
+    iter = 1
+
+    call this % residual(x, b)
+
+    ! Norm of the right hand side
+    bnorm = co_norm2(b)
+
+    ! Norm of the initial residual
+    call this % jacobian_vector_product(x, r)
+    r         = b - r !co_matmul(A, x)
+    rnorm     = co_norm2(r)
+    tol       = rnorm/bnorm
+    rho(iter) = rnorm*rnorm
+
+    if (this_image() .eq. 1) then
+       open(10, file='cg.log', action='write', position='append')
+    end if
+    
+    ! Apply Iterative scheme until tolerance is achieved
+    do while ((tol .gt. max_tol) .and. (iter .lt. max_it))
+
+       ! step (a) compute the descent direction
+       if ( iter .eq. 1) then
+          ! steepest descent direction p
+          p = r
+       else
+          ! take a conjugate direction
+          beta = rho(iter)/rho(iter-1)
+          p = r + beta*p
+       end if
+
+       ! step (b) compute the solution update
+       call this % jacobian_vector_product(p, w)
+       !w = co_matmul(A,p)
+
+       ! step (c) compute the step size for update
+       alpha = rho(iter)/co_dot_product(p, w)
+
+       ! step (d) Add dx to the old solution
+       x = x + alpha*p
+
+       ! step (e) compute the new residual
+       r = r - alpha*w
+       !r = b - matmul(A, x)
+
+       ! step(f) update values before next iteration
+       rnorm = co_norm2(r)
+       tol = rnorm/bnorm
+
+       if (this_image() .eq. 1) then
+          write(10,*) iter, tol
+          print *, iter, tol
+       end if
+       
+       iter = iter + 1
+
+       rho(iter) = rnorm*rnorm
+
+    end do
+
+    close(10)
+
+    deallocate(r, p, w, rho)
+
+    flag = 0
+
+  end subroutine solve
+
+  
+  !===================================================================!
+  ! Function to compute the dot product of two distributed vector
+  !===================================================================!
+
+  function co_dot_product(a, b) result(dot)
+
+    real(8), intent(in) :: a(:), b(:)    
+    real(8) :: dot
+
+    ! find dot product, sum over processors, take sqrt and return
+    dot = dot_product(a, b)  
+    call co_sum (dot)
+
+  end function co_dot_product
+
 end module assembler_class
 
 program main
 
   use element_class, only : spring
-  use assembler_class, only : assembler
+  use assembler_class, only : assembler, co_norm2
   
   implicit none
 
   ! Domain and meshing
   real(8), parameter :: a = 0.0d0, b = 1.0d0
-  integer, parameter :: nelems = 20000000
+  integer, parameter :: nelems = 2000000
 
   integer :: nnodes = nelems + 1
   integer :: me, nimages
@@ -332,9 +455,29 @@ program main
   allocate(rhs(spring_assembler % ndof))
 
   call random_number(x)
-  call spring_assembler % residual(rhs, x)
+  call spring_assembler % residual(x, rhs)
+  !print *, co_norm2(rhs)
   call spring_assembler % jacobian_vector_product(x, rhs)
 
+  !print *, co_norm2(rhs)
+
+  solve: block
+    
+    integer, parameter :: max_it = 100
+    real(8), parameter :: max_tol = 1.0d-8
+    integer :: iter, flag, i, j
+    real(8) :: tol   
+    real(8), allocatable :: x(:)[:]
+
+    allocate(x(spring_assembler % ndof)[*])
+    x = 1.0d0
+   
+    call spring_assembler % solve (max_it, max_tol, x, iter, tol, flag)
+
+    !print *, "solution", x, "from", this_image()
+    
+  end block solve
+  
   ! Distribute the work to processors
   ! call dparcg(A, b, max_it, max_tol, x, iter, tol, flag)
   ! print *, 'cg', tol, iter
@@ -343,4 +486,4 @@ program main
   
   deallocate(springs)
 
-end program
+end program main

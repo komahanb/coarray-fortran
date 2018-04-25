@@ -1,0 +1,120 @@
+\documentclass[journal]{aiaa-pretty} % submit, draft, journal options can be used
+
+\usepackage[belowskip=0pt, aboveskip=0pt]{subcaption}
+\usepackage{float}
+\usepackage{caption}
+
+%\setlength{\belowcaptionskip}{-10pt}
+
+\usepackage{amsmath}
+\newenvironment{rcases}
+  {\left.\begin{aligned}}
+  {\end{aligned}\right\rbrace}
+\newenvironment{lcases}
+  {\left\lbrace\begin{aligned}}
+  {\end{aligned}\right.}
+
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{multirow}
+\usepackage{booktabs}
+\usepackage{doi}
+\usepackage{xcolor}
+\usepackage{graphicx,dblfloatfix} 
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+%\usepackage[superscript]{cite}
+\usepackage[numbers,compress,sort]{natbib}
+%
+\usepackage{soul,xcolor}
+\setstcolor{blue}
+
+% User defined commands
+\newcommand{\ds}{\displaystyle}
+\newcommand{\mb}{\mathbf}
+\newcommand{\mr}{\mathrm}
+\newcommand{\mbs}{\boldsymbol}
+\newcommand{\f}{\frac}
+\newcommand{\p}{\partial}
+\newcommand{\vect}[1]{\vec{\mathbf{#1}}}
+\newcommand{\ignore}[1]{}
+
+\renewcommand{\pd}[2]{\displaystyle{\dfrac{\partial #1}{\partial #2}}}
+\newcommand{\td}[2]{\dfrac{d #1}{d #2}}
+\newcommand{\pdt}[2]{\dfrac{\partial^2 #1}{\partial #2^2}}
+\newcommand{\tdt}[2]{\dfrac{d^2 #1}{d #2^2}}
+\newcommand{\pdtno}[2]{\dfrac{\partial^2 #1}{\partial #2}}
+\newcommand{\pdd}[3]{\dfrac{\partial^2 #1}{\partial #2 \partial #3}}
+\newcommand{\pff}[3]{\dfrac{d^2 #1}{d #2 d #3}}
+
+% Redefined commands
+\renewcommand\floatpagefraction{.95}
+\usepackage{cleveref}
+\crefname{subsection}{subsection}{subsections}
+
+%\newcommand{\com}[1]{\textcolor{red}{#1}}
+%\newcommand{\gjk}[1]{{\leavevmode\color{red}{#1}}}
+\newcommand{\kb}[1]{{\leavevmode\color{blue}{#1}}}
+\newcommand{\off}[1]{}
+
+\graphicspath{{figures/}}
+
+\title{Getting Started with Coarray Fortran}
+
+\author{Komahan Boopathy \thanks{Ph.D. Candidate, School of Aerospace
+    Engineering, 270 Ferst Drive, \url{komahan@gatech.edu}, AIAA
+    Student Member.} \\
+  {\normalsize\itshape Georgia Institute of Technology,
+    Atlanta, GA, 30332-0150, USA.}\\
+} 
+
+\begin{document}
+
+\abstract{abstract.}
+
+\maketitle
+
+\section{Introduction and Motivation}
+
+Scientific programmers do not have to worry about parallelizing the
+work.
+
+A Fortran program containing coarrays is interpreted as if it were
+replicated a fixed number of times and all copies were executed
+asynchronously. Each copy has its own set of data objects and is
+called an image. The array syntax of Fortran is extended with
+additional trailing subscripts in square brackets to give a clear and
+straightforward representation of access to data on other images.
+References without square brackets are to local data objects, so code
+that can run independently is uncluttered. Any occurrence of square
+brackets in dicates communication between images, which might be slow.
+
+-- Parallel programming importance
+-- Languges and libraries that support parallel programming
+   - shared memory/distributed memory
+   - PGAS languages
+
+Fortran programming language had been in existence since 1960s. The
+language that boasts a standard's committee whose target audience is
+scientific programmers.
+
+Corray fortran had been an extension to the language and was first
+developed by Numrich and Reid. It has been invoked as a part of the
+language standard since 2008.
+
+what are images?
+what underlies this?
+compiler support?
+
+\section{Installation}
+
+\section{Problem}
+
+\section{Implementation}
+
+\section{Results}
+
+\bibliographystyle{myabbrvnat}
+\bibliography{citations}
+
+\end{document}

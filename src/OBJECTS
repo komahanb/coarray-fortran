@@ -1,0 +1,6 @@
+objects = clock.o \
+coarray_norm.o \
+coarray_matvecpdt.o \
+coarray_cg.o \
+spring.o \
+coarray_conjugate_gradient.o
