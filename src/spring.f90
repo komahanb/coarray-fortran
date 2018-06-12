@@ -369,7 +369,7 @@ contains
     tol       = rnorm/bnorm
     rho(iter) = rnorm*rnorm
 
-    print , "Missing sync in CG"
+    print * , "Missing sync in CG"
     
     if (this_image() .eq. 1) then
        open(10, file='cg.log', action='write', position='append')

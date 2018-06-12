@@ -1,4 +1,5 @@
 objects = clock.o \
+coarray_util.o \
 coarray_norm.o \
 coarray_matvecpdt.o \
 coarray_cg.o \
