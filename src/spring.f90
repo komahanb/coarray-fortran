@@ -1,7 +1,7 @@
 module element_class
-
+  
   implicit none
-
+    
   private
   
   public :: spring
@@ -51,14 +51,17 @@ contains
     real(8), intent(in) :: spring_constant
     integer, intent(in) :: proc_id
 
+    ! Mesh props
     this % element_id = element_id
+    allocate(this % node_ids, mold = node_ids)
     this % node_ids = node_ids
+    allocate(this % nodes, mold = nodes)
     this % nodes = nodes
-    this % k = spring_constant
-    this % proc_id = proc_id
-
-    !print *, size(node_ids)
     
+    ! Material props
+    this % k = spring_constant
+
+    this % proc_id = proc_id
     this % ndof = this % ndof_per_node * size(node_ids)
     
   end function construct_spring
@@ -71,7 +74,8 @@ contains
 
     class(spring) :: this
 
-    print *, "eid", this % element_id,  "nids", this % node_ids, "x", this % nodes, "proc", this % proc_id
+    print *, "eid", this % element_id,  "nids", this % node_ids, "x", &
+         & this % nodes, "proc", this % proc_id
     
   end subroutine to_string
 
@@ -79,18 +83,22 @@ contains
   ! Add the residual 
   !===================================================================!
 
-  subroutine add_residual(this, x, res)
+  subroutine add_residual(this, x, res, bc, bcval)
 
     class(spring) :: this
     real(8), intent(in) :: x(:)
     real(8), intent(inout) :: res(:)
-
-    !res(1) = res(1) + 1.0d0
-    res(2) = res(2) + 1.0d0
-
-    ! use forces may be?
-    !res(1) = res(1) + 1.0d0 !this % k * (x(1) - x(2)) 
-    !res(2) = res(2) + 1.0d0 !this % k * (x(2) - x(1)) 
+    integer, intent(in)    :: bc
+    real(8), intent(in)    :: bcval
+    
+    ! Add nodal residuals [k]{x} - {f} = 0
+    res(1) = res(1) + this % k * x(1) - this % k * x(2)
+    res(2) = res(2) - this % k * x(1) + this % k * x(2)
+    
+    ! Penalize for BC
+    if (bc .eq. 1) then
+       res(1) = 100000000.0d0 * bcval
+    end if
     
   end subroutine add_residual
 
@@ -100,20 +108,23 @@ contains
   
   subroutine add_jacobian(this, x, jac, bc)
 
-    class(spring) :: this
-    real(8), intent(in) :: x(:)
+    class(spring)          :: this
+    real(8), intent(in)    :: x(:)
     real(8), intent(inout) :: jac(:,:)
-    integer, intent(in) :: bc
-    
-    if ( bc .eq. 1 ) then
-       jac(1,1) = jac(1,1) + this % k + 100.0d0
-    else
-       jac(1,1) = jac(1,1) + this % k
+    integer, intent(in)    :: bc
+
+    ! First column
+    jac(1,1) = jac(1,1) + this % k
+    jac(2,1) = jac(2,1) - this % k
+
+    ! Second column
+    jac(1,2) = jac(1,2) - this % k
+    jac(2,2) = jac(2,2) + this % k
+
+    ! Penalize for BC
+    if (bc .eq. 1) then
+       jac(1,1) = this % k * 100000000.0d0
     end if
-       jac(2,1) = jac(2,1) - this % k
-    
-       jac(1,2) = jac(1,2) - this % k
-       jac(2,2) = jac(2,2) + this % k
     
   end subroutine add_jacobian
 
@@ -123,21 +134,16 @@ contains
   
   subroutine add_jacobian_vector_pdt(this, x, pdt, bc)
 
-    class(spring) :: this
-    real(8), intent(in) :: x(:)
+    class(spring)          :: this
+    real(8), intent(in)    :: x(:)
     real(8), intent(inout) :: pdt(:)
-    integer :: bc
-    real(8) :: A(this % ndof, this % ndof)
+    integer                :: bc
+    real(8)                :: elemjac(this % ndof, this % ndof)
     
-    A = 0.0d0
-    call this % add_jacobian(x, A, bc)
-    pdt = pdt + matmul(A, x)
+    elemjac = 0.0d0
+    call this % add_jacobian(x, elemjac, bc)
+    pdt = pdt + matmul(elemjac, x)
 
-    !pdt(1) = pdt(1) + this % k * x(1) - this % k * x(2)
-    !pdt(2) = pdt(2) - this % k * x(2) + this % k * x(2)
-    !print *, "out", pdt
-    ! Any communication with neighbor?
-    
   end subroutine add_jacobian_vector_pdt
   
 end module element_class
@@ -173,22 +179,6 @@ module assembler_class
   end interface assembler
 
 contains
-
-  !===================================================================!
-  ! Function to compute the norm of a distributed vector
-  !===================================================================!
-  
-  function co_norm2(x) result(norm)
-
-    real(8), intent(in) :: x(:)    
-    real(8) :: xdot, norm
-
-    ! find dot product, sum over processors, take sqrt and return
-    xdot = dot_product(x,x)  
-    call co_sum (xdot)
-    norm = sqrt(xdot)
-
-  end function co_norm2
   
   type(assembler) function create_assembler(elems) result (this)
 
@@ -205,7 +195,10 @@ contains
     ! removing common dofs
     this % ndof = this % nelems + 1
     
-    print *, "NDOF=",this % ndof, "proc", this_image()
+    print *, "NDOF=", this % ndof, "proc", this_image()
+    print *, "how to apply bc?"
+    print *, "how to set rhs?"
+    print *, "implement destructor"
     
   end function create_assembler
   
@@ -215,23 +208,32 @@ contains
   
   subroutine residual(this, x, res)
 
-    class(assembler) :: this
-    real(8), intent(in) :: x(:)
+    class(assembler)       :: this
+    real(8), intent(in)    :: x(:)
     real(8), intent(inout) :: res(:)
-    integer :: nids(2)
-    integer :: e
+    integer                :: nids(2)
+    integer                :: e
 
     res = 0.0d0
-    
-    do e = 1, this % nelems
+    do e = 2, this % nelems
        nids = this % elems(e) % node_ids
        call this % elems(e) % add_residual( &
             & x(nids(1):nids(2)), &
-            & res(nids(1):nids(2)) &
-            & )
+            & res(nids(1):nids(2)), &
+            & 0, 0.0d0)
+       if (e .eq. this % nelems .AND. THIS_IMAGE() .EQ. NUM_images()) res(nids(2)) = res(nids(2)) + 1.0d0
     end do
-
+    
+    IF (THIS_IMAGE() .EQ. 1) then
+       ! Apply BC on the first element
+       nids = this % elems(1) % node_ids
+       call this % elems(1) % add_residual( &
+            & x(nids(1):nids(2)), &
+            & res(nids(1):nids(2)), &
+            & 1, 0.0d0)
+    END IF
     !call this % apply_bc(res)
+    ! Right hand side for the last element (we apply a tail force)
     
   end subroutine residual
 
@@ -250,18 +252,38 @@ contains
     ! Zero the jacobian matrix entries
     jac = 0.0d0
 
-    ! Add individual blocks to the matrix
-    do e = 1, this % nelems      
-       nids = this % elems(e) % node_ids     
-       associate ( &
-            & jmat => jac(nids(1):nids(2), nids(1):nids(2)), &
-            & xvec => x(nids(1):nids(2)) ) 
-         call this % elems(e) % add_jacobian(xvec, jmat, e)         
-       end associate
-  end do
+    IF (THIS_IMAGE() .EQ. 1) then
+       
+       ! Add individual blocks to the matrix
+       do e = 1, this % nelems      
+
+          associate ( nids => this % elems(e) % node_ids )
+            associate( jmat => jac(nids(1):nids(2), nids(1):nids(2)), &
+                 & xvec => x(nids(1):nids(2)) ) 
+              call this % elems(e) % add_jacobian(xvec, jmat, e)
+            end associate
+          end associate
+          
+       end do
+       
+    else
+
+       ! Add individual blocks to the matrix
+       do e = 1, this % nelems
+          
+          associate ( nids => this % elems(e) % node_ids )
+            associate( jmat => jac(nids(1):nids(2), nids(1):nids(2)), &
+             & xvec => x(nids(1):nids(2)) ) 
+              call this % elems(e) % add_jacobian(xvec, jmat, 0)
+            end associate
+          end associate
+          
+       end do
+       
+    end if
 
   end subroutine jacobian
-  
+
   !===================================================================!
   ! Add the jacobian-vector product
   !===================================================================!
@@ -272,44 +294,61 @@ contains
     real(8), intent(in) :: x(:)
     real(8), intent(inout) :: Jx(:)
     integer :: e
-    integer :: nids(this % ndof)
-
+    
     Jx = 0.0d0
-    
-    do e = 1, this % nelems
 
-          nids = this % elems(e) % node_ids
-          
-          call this % elems(e) % add_jacobian_vector_pdt( &
-               & x(nids(1):nids(2)), &
-               & Jx(nids(1):nids(2)), e &
-               & )
+    IF (THIS_IMAGE() .EQ. 1) then
        
-    end do
+       do e = 1, this % nelems
+          associate (nids => this % elems(e) % node_ids)
+            call this % elems(e) % add_jacobian_vector_pdt( &
+                 & x(nids(1):nids(2)), &
+                 & Jx(nids(1):nids(2)), &
+                 & e) ! applies bc
+          end associate
+       end do
 
-    ! 
-    !call this % apply_bc(res)
-    
+    else
+
+       do e = 1, this % nelems
+          associate (nids => this % elems(e) % node_ids)
+            call this % elems(e) % add_jacobian_vector_pdt( &
+                 & x(nids(1):nids(2)), &
+                 & Jx(nids(1):nids(2)), &
+                 & 0) ! applies bc
+          end associate
+       end do
+       
+    end if
+
+    ! call this % apply_bc(res)    
     ! Any communication with neighbor?
 
   end subroutine jacobian_vector_product
+
+  !===================================================================!
+  ! Solve the linear system using iterative method : conjugate gradient
+  !===================================================================!
   
   subroutine solve(this, max_it, max_tol, x, iter, tol, flag)
 
-    class(assembler) :: this
-    integer , intent(in) :: max_it
-    real(8), intent(in) :: max_tol
+    use coarray_util, only : co_norm2, co_dot_product
+    implicit none
+    
+    class(assembler)        :: this
+    integer , intent(in)    :: max_it
+    real(8) , intent(in)    :: max_tol
 
-    real(8), intent(inout) :: x(:)
+    real(8) , intent(inout) :: x(:)
     integer , intent(out)   :: iter
-    real(8), intent(out)   :: tol
+    real(8) , intent(out)   :: tol
     integer , intent(out)   :: flag
 
     ! create local data
-    real(8), allocatable :: p(:), r(:), w(:), b(:)
-    real(8), allocatable :: rho(:)
-    real(8) :: alpha, beta
-    real(8) :: bnorm, rnorm
+    real(8) , allocatable   :: p(:), r(:), w(:), b(:)
+    real(8) , allocatable   :: rho(:)
+    real(8)                 :: alpha, beta
+    real(8)                 :: bnorm, rnorm
 
     ! Memory allocations
     allocate(r, p, w, b, mold=x)
@@ -330,6 +369,8 @@ contains
     tol       = rnorm/bnorm
     rho(iter) = rnorm*rnorm
 
+    print , "Missing sync in CG"
+    
     if (this_image() .eq. 1) then
        open(10, file='cg.log', action='write', position='append')
     end if
@@ -383,21 +424,5 @@ contains
     flag = 0
 
   end subroutine solve
-
-  
-  !===================================================================!
-  ! Function to compute the dot product of two distributed vector
-  !===================================================================!
-
-  function co_dot_product(a, b) result(dot)
-
-    real(8), intent(in) :: a(:), b(:)    
-    real(8) :: dot
-
-    ! find dot product, sum over processors, take sqrt and return
-    dot = dot_product(a, b)  
-    call co_sum (dot)
-
-  end function co_dot_product
 
 end module assembler_class
