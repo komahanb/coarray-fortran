@@ -21,7 +21,7 @@ end program main
 !=====================================================================!
 
 subroutine test_norm
-  
+
   use vector_class, only : vector
 
   implicit none
@@ -35,7 +35,7 @@ subroutine test_norm
   type(vector) :: xvec
   real(8) :: xdot
   real(8) :: xnorm
-    
+
   ! Determine partition
   nimages = num_images()
   local_size = global_size/nimages
@@ -47,13 +47,15 @@ subroutine test_norm
   ! Test norm computations of large vector with random values
   !-------------------------------------------------------------------!
 
+  print *, nimages, this_image()
+
   test_random: block
 
     ! Set random values into the vector
     call random_number(x)
 
     ! Using direct procedure
-    xdot = dot_product(x,x)  
+    xdot = dot_product(x,x)
     call co_sum (xdot)
     if (this_image() == 1) then
        write(*,*) "Norm of the array using direct procedure is", sqrt(xdot) , this_image()
@@ -71,7 +73,7 @@ subroutine test_norm
     if (this_image() == 1) then
        write(*,*) "Norm of the vector datatype is", xnorm , this_image()
     end if
-    
+
   end block test_random
 
   !-------------------------------------------------------------------!
@@ -79,12 +81,12 @@ subroutine test_norm
   !-------------------------------------------------------------------!
 
   test_deterministic: block
-    
+
     ! Set deterministic values into the vector
     x = 1.0d0
 
     ! Using direct procedure
-    xdot = dot_product(x,x)  
+    xdot = dot_product(x,x)
     call co_sum (xdot)
     if (this_image() == 1) then
        write(*,*) "Norm of the array using direct procedure is", sqrt(xdot) , this_image()
@@ -95,7 +97,7 @@ subroutine test_norm
     if (this_image() == 1) then
        write(*,*) "Norm of the vector using co_norm2 function is", xnorm, this_image()
     end if
-    
+
     ! Using derived datatype that uses direct procedure internally
     xvec % values = x
     xnorm = xvec % norm()
@@ -108,18 +110,18 @@ subroutine test_norm
   deallocate(x)
 
 contains
-  
+
   !===================================================================!
   ! Function to compute the norm of a distributed vector
   !===================================================================!
-  
+
   function co_norm2(x) result(norm)
 
-    real(8), intent(in) :: x(:)    
+    real(8), intent(in) :: x(:)
     real(8) :: xdot, norm
 
     ! find dot product, sum over processors, take sqrt and return
-    xdot = dot_product(x,x)  
+    xdot = dot_product(x,x)
     call co_sum (xdot)
     norm = sqrt(xdot)
 

@@ -1,23 +1,19 @@
 !=====================================================================!
 ! Vector datatype module that computes norm in a distributed fashion
-! 
+!
 ! Author : Komahan Boopathy (komahan@gaech.edu)
 !=====================================================================!
 
 module vector_class
 
   use iso_fortran_env, only : dp => REAL64
-  use opencoarrays, only : co_sum
-  
+
   implicit none
 
-  ! Everything is private to module
   private
 
-  ! Only the datatype is exposed to public
   public :: vector
 
-  ! Vector datatype
   type :: vector
 
      ! Attributes
@@ -42,7 +38,7 @@ contains
 
   ! MPI_SUM
   pure function reduce_sum(a, b)
-    
+
     real(dp), intent(in) :: a, b
     real(dp) :: reduce_sum
     reduce_sum = a + b
@@ -75,7 +71,7 @@ contains
     this % values = 0.0d0
 
   end subroutine zero_values
-  
+
   !===================================================================!
   ! Copies the values of one vector into another
   !===================================================================!
@@ -87,7 +83,7 @@ contains
 
     if (a % size .ne. this % size) &
          & stop "dimension-mismatch-for-copy"
-    
+
     this % values = a % values
 
   end subroutine copy_values
@@ -117,7 +113,7 @@ contains
     this % values = this % values + alpha * x % values
 
   end subroutine axpy
-  
+
   !===================================================================!
   ! y <- beta*y + alpha*x where alpha is a scalar
   !===================================================================!
@@ -144,7 +140,7 @@ contains
     this % values = alpha * this % values
 
   end subroutine scale
-  
+
   !===================================================================!
   ! Return the dot product of this vector with another vector 'b'
   !===================================================================!

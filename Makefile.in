@@ -14,14 +14,18 @@ F2008    = yes
 LAPACK   = yes
 COMPLEX  = no
 
+OPENCOARRAYS_ROOT=${HOME}/install/opencoarrays
+OPENCOARRAYS_PATH=${HOME}/install/opencoarrays/bin
+OPENCOARRAYS_LIB=${HOME}/install/opencoarrays/lib
+
 #=====================================================================#
 # External Library Paths
 #=====================================================================#
 
-MPI_DIR    = $(HOME)/install/mpich-3.2/builild
-HDF5_DIR   = /opt/hdf5/1.8.9-$(COMPILER)
-PETSC_DIR  = $(HOME)/install/petsc/3.7.4
-LAPACK_DIR = /usr
+#MPI_DIR    = $(HOME)/install/mpich-3.2/builild
+#HDF5_DIR   = /opt/hdf5/1.8.9-$(COMPILER)
+#PETSC_DIR  = $(HOME)/install/petsc/3.7.4
+#LAPACK_DIR = /usr
 
 #=====================================================================#
 # Add git SHA-1 hash
@@ -34,13 +38,26 @@ LAPACK_DIR = /usr
 #=====================================================================#
 
 ifeq ($(COMPILER),gnu)
+  F90FLAGS := -cpp -fbacktrace
+
   # Vanilla gnu or Coarray wrapper
   ifeq ($(COARRAY),yes)
-    F90 = caf
+    ifneq ($(OPENCOARRAYS_PATH),)
+      F90 = $(OPENCOARRAYS_PATH)/caf
+    else
+      F90 = caf
+    endif
+
+    ifneq ($(OPENCOARRAYS_ROOT),)
+      F90FLAGS += -I$(OPENCOARRAYS_ROOT)/include
+    endif
+
+    ifneq ($(OPENCOARRAYS_LIB),)
+      LDFLAGS  += -L$(OPENCOARRAYS_LIB)
+    endif
   else
     F90 = gfortran
   endif
-  F90FLAGS := -cpp -fbacktrace
 
   # COMPLEX mode
   ifeq ($(COMPLEX),yes)
@@ -55,7 +72,7 @@ ifeq ($(COMPILER),gnu)
   # Debugging
   ifeq ($(DEBUG),yes)
     F90FLAGS += -g -Wall -pedantic -fbounds-check \
-                -ffpe-trap=invalid,overflow,underflow
+		-ffpe-trap=invalid,overflow,underflow
     LDFLAGS  += -g
   endif
 
@@ -120,8 +137,8 @@ endif
 ifeq ($(HDF5),yes)
   F90FLAGS += -DHDF5 -I$(HDF5_DIR)/include
   LDFLAGS += -L$(HDF5_DIR)/lib $(HDF5_DIR)/lib/libhdf5hl_fortran.a \
-             $(HDF5_DIR)/lib/libhdf5_hl.a $(HDF5_DIR)/lib/libhdf5_fortran.a \
-             $(HDF5_DIR)/lib/libhdf5.a -lz -lrt -lm -Wl,-rpath -Wl,$(HDF5_DIR)/lib
+	     $(HDF5_DIR)/lib/libhdf5_hl.a $(HDF5_DIR)/lib/libhdf5_fortran.a \
+	     $(HDF5_DIR)/lib/libhdf5.a -lz -lrt -lm -Wl,-rpath -Wl,$(HDF5_DIR)/lib
 endif
 
 # PETSC
